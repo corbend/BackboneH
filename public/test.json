@@ -1,0 +1,22 @@
+{"id":3661,"name":"Тестовый тип",
+"tags":[
+	{"id":2461,"name":"тестовый тег","title":null},
+	{"id":2462,"name":"тестовый тег2","title":null}
+],
+"applications":[
+	{"id":2261,"name":"тестовое приложение1402296186340",
+	"host":"127.0.0.1","port":1234,"key":"1402296186340",
+	"notifications":[],"notificationMessages":[],
+	"applicationTypeID":3661}
+],
+"metrics":[
+	{"id":2521,"name":"тестовая метрика",
+	"title":"тестовая метрика описание",
+	"valueType":"DOUBLE","applicationTypeId":3661
+	}
+],
+"statusChangeTime":123321,
+"informers":[],
+"graphSets":[],
+"statusControlMetric":null,
+"title":"описание"}
