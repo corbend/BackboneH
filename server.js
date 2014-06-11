@@ -20,7 +20,8 @@ var testModels = [
 	 					values: [{id: 1, name: 'Val1', description: 'Val1 Desc'}]},
 	 				{id: 2, name: 'Tag2', description: 'Tag2'},
 	 				{id: 3, name: 'Tag3', description: 'Tag3'}
-	 			]},
+	 			]
+	 		},
 			{id: 2, name: 'appType1_metric2', description: 'Описание метрики2'},
 			{id: 3, name: 'appType1_metric3', description: 'Описание метрики3'}
 		]
@@ -53,12 +54,33 @@ var testModels = [
 
 ]
 
+var parentModels = [
+	{id: 1, name: "Root1", description: 'Root1',
+		apps: [testModels[0], testModels[1]]
+	},
+	{id: 2, name: "Root2", description: 'Root2',
+		apps: [testModels[2]]
+	} 
+];
+
 app.get("/", function(req, res) {
 	res.sendfile("backbone.html");
 })
+
+app.get("/parent", function(req, res) {
+
+	res.writeHeader('contentType', 'application/json');
+	res.end(JSON.stringify(parentModels));
+});
 
 app.get("/apps", function(req, res) {
 
 	res.writeHeader('contentType', 'application/json');
 	res.end(JSON.stringify(testModels));
+});
+
+app.get("/parent/:id", function(req, res) {
+	res.writeHeader('contentType', 'application/json');
+	var id = parseInt(req.params.id);
+	res.end(JSON.stringify(parentModels[id - 1]));
 });

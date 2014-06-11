@@ -6,6 +6,7 @@ var LinkedStore = Backbone.Collection.extend({
 	parentIdName: '',
 	root: '',
 	leafFetchMode: false,
+	syncAfterReset: true,
 	populateOnParse: true,
 	getNamespace: function() {
 		return this.jsonNamespace || this.model.urlRoot || this.urlRoot;
@@ -45,9 +46,9 @@ var LinkedStore = Backbone.Collection.extend({
 			}
 			//добавляем дочерние модели
 			c.reset();
-
 			c.add(nestedModels);
-			c.trigger('sync');
+			console.log("sync");
+			c.trigger('sync', this);
 		}, this);
 	},
 	parse: function(response, options) {
@@ -81,6 +82,19 @@ var LinkedStore = Backbone.Collection.extend({
 		});
 		_.bind(this.fetch, this);
 	},
+	_onItemAdd: function(model) {
+
+		var childs = this.getChildren(),
+			nestedJsons;
+
+		childs.forEach(function(c) {
+			nestedJsons = model.get(c.getNamespace());
+			if (!_.isEmpty(nestedJsons)) {
+				c.add(nestedJsons);
+				// console.log("ADD TO CHILD=" + c.getNamespace() + ", " + c.models.length);
+			}
+		}, this);
+	},
 	initialize: function(options) {
 
 		this._childs = [];
@@ -88,19 +102,19 @@ var LinkedStore = Backbone.Collection.extend({
 		//а брали их с родительской коллекции
 		//при добавлении вытаскимаем вложенные записи и добавляем
 		//в каждый дочерний store
+		console.log("init");
+		this.on('add', this._onItemAdd, this);
 
-		this.on('add', function(model) {
-			var childs = this.getChildren(),
-				nestedJsons;
+		this.on('reset', function(collection, options) {
 
-			childs.forEach(function(c) {
-				nestedJsons = model.get(c.getNamespace());
-
-				if (!_.isEmpty(nestedJsons)) {
-					c.add(nestedJsons);
-				}
+			collection.forEach(function(model) {
+				this._onItemAdd(model);
 			}, this);
-		}, this);
+
+			// if (this.syncAfterReset) {
+			// 	this.trigger('sync', this);
+			// }
+		});
 
 		this.on('destroy', function(model) {
 			var deletedModel;
@@ -134,11 +148,40 @@ var LinkedStore = Backbone.Collection.extend({
 		childStore._parent = this;
 		childStore._fetchWrap();
 	},
+	remChild: function(childStore) {
+		this._childs = _.without(this._childs, childStore);
+	},
 	getChildren: function(parentModel, jsonNamespace) {
 		return this._childs;
 	},
 	getParent: function() {
 		return this._parent;
+	},
+	filterById: function(relStore, model, refetch) {
+
+		var parentIdName, scope = this;
+		var afterSuccess = function(renewModel) {
+			//список Json объектов для фильтрации и добавления в дочерний стор
+        	var jsonItems = renewModel.get(relStore.getNamespace());
+        	if (jsonItems) {
+        		relStore.reset();
+        		jsonItems.forEach(function(modelJson) {relStore.add(modelJson)}, scope);
+	        }
+        	//после выполнения операции по извлечению данных убираем дочерний стор
+            this.remChild(relStore);
+		};
+
+		parentIdName = this.parentIdName;
+		this.addChild(relStore);
+		if (refetch) {
+			model.fetch({
+				success: function(renewModel) {
+					afterSuccess.call(scope, renewModel);
+				}
+			});
+		} else {
+			afterSuccess.call(scope, model);
+		}
 	}
 });
 
@@ -166,31 +209,32 @@ var ItemView = Backbone.View.extend({
 			'parent_id': (this.parentModel && this.parentModel.id) || ''
 		});
 		this.$el.html(_.template(this.template)(modelData));
-
+		this.$el.data("tab_id", this.options.tab_id);
 		return this;
 	}
 });
 
 var ListView = Backbone.View.extend({
 
-	el: "#list",
-
 	className: 'list-view',
+	tabsCount: 0,
 	initialize: function() {
 
-		this.collection.on("reset", function() {
-			this.$el.children().remove();
-		}, this);
-
-		this.collection.on('sync', function(options) {
+		var onSync = function(options) {
 			if (!this.collection._resync) {
 				this.render();
 			}
-		}, this);
+		};
 
-		this.collection.on('remove', function() {
+		var onReset = function() {
+			this.$el.children().remove();
+		}
 
-		});
+		this.collection.on("reset", onReset, this);
+		this.collection.on('sync', onSync, this);
+
+		this.setEventsByChildren(this.collection);
+
 	},
 	_styleForNested: function(nested) {
 		nested.css('marginLeft', '80px');	
@@ -201,7 +245,7 @@ var ListView = Backbone.View.extend({
 		var store = model.collection;
 		var renderTo = renderToParent || this.$el;
 
-		parentView = $((new ItemView({
+		parentView = $((new ItemView({tab_id: this.tabsCount++,
 				model: model})).render().el);
 
 		if (renderToParent) {
@@ -224,9 +268,6 @@ var ListView = Backbone.View.extend({
 				}
 
 				model.on('destroy', function() {
-					// for (var c=0; c < childViews.length; c++) {
-					// 	childViews[c].remove();
-					// }
 					parentView.remove();
 				});
 
@@ -236,15 +277,12 @@ var ListView = Backbone.View.extend({
 		return parentView;
 	},
 	setEventsByChildren: function(col, parentCollection) {
-
 		col.on('add', function(model, collection) {
 			//если родильская коллекция изменилась запускаем рекурсивное распространение
 			this._onParentChange(model);
 		}, this);
 	},
 	render: function() {
-
-		this.setEventsByChildren(this.collection);
 
 		this.collection._resync = true;
 		try {
@@ -291,7 +329,16 @@ $(function() {
 		defaults: {
 			name: '',
 			description: '',
-			m3prop: 'prop4'
+			m4prop: 'prop4'
+		}
+	});
+
+	var M5 = Backbone.Model.extend({
+		urlRoot: 'parent',
+		defaults: {
+			name: '',
+			description: '',
+			m5prop: 'prop5'
 		}
 	});
 
@@ -306,22 +353,63 @@ $(function() {
 	c2.url = "/metrics";
 	var c3 = new LinkedStore({model: M3, url: '/tags', urlRoot: 'tags', leafFetchMode: true});
 	c3.url = "/tags";
-	var c4 = new LinkedStore({model: M3, url: '/values', urlRoot: 'values', leafFetchMode: true});
-	c3.url = "/tags";
+	var c4 = new LinkedStore({model: M4, url: '/values', urlRoot: 'values', leafFetchMode: true});
+	c4.url = "/values";
+	var c5 = new LinkedStore({model: M5, url: '/parent', urlRoot: 'parent', leafFetchMode: true});
+	c5.url = "/parent";
+
+	window.c1 = c1;
+	window.c2 = c2;
+	window.c3 = c3;
+	window.c4 = c4;
+	window.c5 = c5;
 
 	c1.addChild(c2);
 	c2.addChild(c3);
 	c3.addChild(c4);
 
-	var view = new ListView({collection: c1});
-	view.render();
+	var ParentList = ListView.extend({
+		el: "#parent-list",
+		className: 'inline-list',
+		events: {
+			"click li": 'onClick'
+		},
+		onClick: function(event) {
+
+			var tabs = this.$("li");
+			var idx = 0, selectTabId;
+			tabs.each(function(index, item) {
+				if ($(item).data("tab_id") == $(event.target).parent().data("tab_id")) {
+					selectTabId = idx;
+				}
+				idx++;
+			});
+			if (selectTabId != null) {	
+				c5.filterById(c1, c5.get(selectTabId + 1), true);
+			}
+		}
+	})
+	var ChildList = ListView.extend({
+		el: "#list"
+	})
+
+	var parentView = new ParentList({collection: c5});
+	var childView = new ChildList({collection: c1});
+
+	parentView.render();
+	childView.render();
 
 	c1.fetch(
 		{success: function() {
-			c2.at(0).destroy();
+			//пример для удаления модели (расскоментировать чтобы увидеть изменения)
+			// c2.at(0).destroy();
 		}}
 	);
-	// debugger;
-	// c1.reset([]);
+
+	c5.fetch({
+		success: function() {
+			// c5.filterById(c1, c5.get(1), true);
+		}
+	});
 
 });	
